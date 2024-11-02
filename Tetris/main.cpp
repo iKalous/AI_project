@@ -1,3 +1,5 @@
+#include "gamesound.h"
+
 #include <vector>
 #include <random>
 #include <thread>
@@ -9,11 +11,6 @@
 #include <algorithm>
 using namespace std;
 
-std::chrono::milliseconds operator""ms(unsigned long long milliseconds)
-{
-    return std::chrono::milliseconds(milliseconds); 
-}
-
 const int width = 12;
 const int height = 18;
 
@@ -23,6 +20,8 @@ const int nScreenHeight = 30; // Console Screen Size Y
 unsigned char *pField = nullptr;
 
 wstring tetromino[7];
+
+// create a buffer
 
 void build_tetromino()
 {
@@ -96,57 +95,88 @@ bool Check_Fit(int nTetromino,int nRotation,int nPosx,int nPosy)
     return true;
 }
 
-// Game Logic Stuff
+int fSpeed = 0;
+int fac = 0;
 
-bool gameover = false;
-
-int nCurrentPiece = 1;
-int nCurrentRotation = 0;
-int nCurrentX = width >> 1,nCurrentY = 0;
-
-// key pressed
-bool Key[4];
-bool Rotate_Hold = false;
-
-// game speed
-int nSpeed = 20;
-int nSpeedCounter = 0;
-bool ForceDown = false;
-int nPiececount = 0;
-
-// remove line
-vector<int> vLine;
-
-// scores
-int nScore = 0;
-
-int main()
+void choose()
 {
-    build_tetromino();
+    int Key[3];
+    while(1)
+    {
+        for (int k = 0; k < 3; k++)   
+                Key[k] = (0x8000 & GetAsyncKeyState((unsigned char)("EMH"[k]))) != 0;
+        if(Key[0] + Key[1] + Key[2] > 0) break;
+    }
+    if(Key[0]) fSpeed = 20,fac = 0;
+    if(Key[1]) fSpeed = 10,fac = 1;
+    if(Key[2]) fSpeed = 5,fac = 2;
+}
+
+int History_Score = 0;
+
+void tetris()
+{
+    // Game Logic Stuff
+
+    start_the_game();
+
+    bool gameover = false;
+
+    int nCurrentPiece = 1;
+    int nCurrentRotation = 0;
+    int nCurrentX = width >> 1,nCurrentY = 0;
+
+    wchar_t *screen = new wchar_t[nScreenHeight * nScreenWidth];
+    HANDLE hConsole = CreateConsoleScreenBuffer(GENERIC_READ | GENERIC_WRITE,0,NULL,CONSOLE_TEXTMODE_BUFFER,NULL);
+    for(int i = 0;i < nScreenHeight * nScreenWidth; ++ i) screen[i] = L' ';
+    SetConsoleActiveScreenBuffer(hConsole);
+    DWORD dwBytesWritten = 0;
+
+    // key pressed
+    bool Key[5];
+    bool Rotate_Hold = false;
+
+    // game speed
+    int nSpeed = fSpeed;
+    int nSpeedCounter = 0;
+    bool ForceDown = false;
+    bool breakPreviousRecord = false;
+    int nPiececount = 0;
+
+    // remove line
+    vector<int> vLine;
+
+    // scores
+    int nScore = 0;
 
     pField = new unsigned char[width * height]; // create game field buffer
     for(int x = 0;x < width; ++ x) // boarder
         for(int y = 0;y < height; ++ y)
             pField[y * width + x] = (x == 0 || x == width - 1 || y == height - 1) ? 9 : 0; // 9 represent the boarder
-        
-    wchar_t *screen = new wchar_t[nScreenHeight * nScreenWidth];
-    for(int i = 0;i < nScreenHeight * nScreenWidth; ++ i) screen[i] = L' ';
-    HANDLE hConsole = CreateConsoleScreenBuffer(GENERIC_READ | GENERIC_WRITE,0,NULL,CONSOLE_TEXTMODE_BUFFER,NULL);
-    SetConsoleActiveScreenBuffer(hConsole);
-    DWORD dwBytesWritten = 0;
 
     while(gameover != true)
     {
         // GAME TIMING
         //cout<< dwBytesWritten <<endl;
         this_thread :: sleep_for(50ms); // game tick
+        //for(int i = 1;i <= 40000000; ++ i);
         ++nSpeedCounter, ForceDown = (nSpeedCounter == nSpeed);
 
         // INPUT
-        for (int k = 0; k < 4; k++)   
-            Key[k] = (0x8000 & GetAsyncKeyState((unsigned char)("\x27\x25\x28Z"[k]))) != 0; // \x27 \x25 \x28 right left down
+        for (int k = 0; k < 5; k++)   
+            Key[k] = (0x8000 & GetAsyncKeyState((unsigned char)("\x27\x25\x28ZP"[k]))) != 0; // \x27 \x25 \x28 right left down
 
         // GAME LOGIC
+        if(Key[4]) 
+        {
+            int flag = 0;
+            while(1)
+            {
+                flag = (0x8000 & GetAsyncKeyState((unsigned char)('Q'))) != 0;
+                if(flag) break;
+            }
+        }
+
         if(Key[0] && Check_Fit(nCurrentPiece,nCurrentRotation,nCurrentX + 1,nCurrentY)) // check ->R
                 ++nCurrentX;
 
@@ -166,6 +196,8 @@ int main()
                 ++ nCurrentY;
             else // then this piece should be locked
             {
+                clean_piece();
+
                 // lock the piece in the field
                 for(int px = 0;px < 4; ++ px)
                     for(int py = 0;py < 4; ++ py)
@@ -175,7 +207,7 @@ int main()
                 // speed up
                 ++nPiececount;
                 if(nPiececount % 10 == 0)
-                    if(nSpeed >= 10) -- nSpeed;
+                    if(nSpeed >= fSpeed / 2) -- nSpeed;
                 
                 // check if there is any line
                 for(int py = 0;py < 4; ++ py)
@@ -198,6 +230,7 @@ int main()
                     nScore += (1 << vLine.size()) * 100;
 
                 //drop a new piece
+                drop_piece();
                 nCurrentPiece = rand() % 7;
                 nCurrentRotation = 0;
                 nCurrentX = width >> 1, nCurrentY = 0;
@@ -221,13 +254,18 @@ int main()
                     screen[(nCurrentY + py + 2) * nScreenWidth + (nCurrentX + px + 2)] = nCurrentPiece + 'A';
 
         //Draw Current Scores
-        swprintf_s(&screen[2 * nScreenWidth + width + 6],16,L"Score: %8d",nScore);
+        if(nScore + nScore / 5 * fac > History_Score && !breakPreviousRecord) break_the_record(), breakPreviousRecord = 1;
+        History_Score = max(History_Score,nScore + nScore / 5 * fac);
+        swprintf_s(&screen[2 * nScreenWidth + width + 6],33,L"Score: %8d Record: %8d",nScore + nScore / 5 * fac,History_Score);
 
     
         if(!vLine.empty())
         {
+            clean_line();
+
             WriteConsoleOutputCharacterW(hConsole,screen,nScreenWidth * nScreenHeight,{0,0},&dwBytesWritten);
             this_thread :: sleep_for(400ms); // Delay a bit~
+            //for(int i = 1;i <= 40000000; ++ i);
 
             for(int i = 0,v;i < vLine.size(); ++ i) // actually an array can also solve this problem
             {
@@ -244,11 +282,73 @@ int main()
         
         //Display Frame
         WriteConsoleOutputCharacterW(hConsole,screen,nScreenHeight * nScreenWidth,{0,0},&dwBytesWritten);
+        
     }
-
     CloseHandle(hConsole);
-    cout<< "Game Over! Score: " << nScore <<endl;
+    if(!breakPreviousRecord)
+    {
+        game_is_over();
+        cout<< "Game Over! Score: " << nScore <<endl;
+    }
+    else
+    {
+        win();
+        cout<< "Game Over! New Record: " << nScore << "!" <<endl;
+    }
     system("pause");
+    system("cls");
+}
 
+void start_game()
+{
+    start_the_game();
+    tetris();
+}
+
+void end_game() { exit(0); }
+
+void circulate()
+{
+    int Key[3];
+    while(1)
+    {
+        for (int k = 0; k < 2; k++)   
+            Key[k] = (0x8000 & GetAsyncKeyState((unsigned char)("SQ"[k]))) != 0;
+        if(Key[0] + Key[1] > 0) break;
+    }
+    if(Key[0]) start_game();
+    if(Key[1]) end_game();
+}
+
+void readme()
+{
+	for(int i = 1;i <= 10; ++ i) puts("");
+    printf("                                        Welcome to play Tetris!\n");
+    printf("       You can press \"Z\" to rotate, and use the left,right and down keys to move the pieces.\n");
+    printf("                 Also, you can press \"P\" to puase if you like~ then press\"Q\" to continue\n");
+    printf("                         Please press\"S\" to Start the game and \"Q\" to quit.\n");
+    printf("                                        Now let's have a try!\n");
+    system("pause");
+    system("cls");
+
+    while(1) 
+    {
+        for(int i = 1;i <= 10; ++ i) puts("");
+        printf("                                  Please select the difficulty level\n");
+        printf("                                           Easy: press\"E\" \n");
+        printf("                                         Midium: press\"M\" \n");
+        printf("                                           Hard: press\"H\" \n");
+        choose();
+        system("cls");
+        for(int i = 1;i <= 10; ++ i) puts("");
+        printf("                               Please press\"S\" to Start the game and \"Q\" to quit.\n");
+        circulate();
+    }
+}
+
+int main()
+{
+    build_tetromino();
+    readme();
     return 0;
 }
