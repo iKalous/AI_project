@@ -1,5 +1,5 @@
 import os
-os.environ["OPENAI_API_KEY"] = 'sk-63923c87aea64fdcbc82a277276eaebe'
+os.environ["OPENAI_API_KEY"] = 'ur Key'
 from langchain_openai import ChatOpenAI
 chat = ChatOpenAI(model="deepseek-chat",base_url="https://api.deepseek.com",temperature=0.8,
                     max_tokens=60)
